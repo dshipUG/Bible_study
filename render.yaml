@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: abide-bible-study
+    runtime: node
+    plan: free
+    buildCommand: node --check server.js && node --check integrations.js && node --check public/app.js
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 24.22.1
+      - key: NODE_ENV
+        value: production
+      - key: ABIDE_OPENAI_KEY
+        sync: false
+      - key: APP_ACCESS_PASSWORD
+        sync: false
