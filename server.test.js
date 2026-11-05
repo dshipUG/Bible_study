@@ -6,7 +6,7 @@ let base;
 before(async()=>{await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve)});base=`http://127.0.0.1:${server.address().port}`;});
 after(()=>new Promise(r=>{server.closeAllConnections();server.close(r)}));
 async function client(){const r=await nativeFetch(base+'/api/status');const status=await r.json();const cookie=r.headers.get('set-cookie').split(';')[0];return {status,get:(path)=>nativeFetch(base+path,{headers:{cookie},redirect:'manual'}),post:(path,data)=>nativeFetch(base+path,{method:'POST',headers:{cookie,'x-csrf-token':status.csrf,'Content-Type':'application/json'},body:JSON.stringify(data)})};}
-const input={mode:'history',messages:[{role:'user',content:'Explain John 1:1'}]};
+const input={mode:'history',passage:{reference:'Romans 4:5',translation:'KJV',text:'But to him that worketh not, but believeth on him that justifieth the ungodly, his faith is counted for righteousness.'},messages:[{role:'user',content:'history'}]};
 function env(t,values){const prior={};for(const [key,value]of Object.entries(values)){prior[key]=process.env[key];if(value===undefined)delete process.env[key];else process.env[key]=value;}t.after(()=>{for(const [key,value]of Object.entries(prior)){if(value===undefined)delete process.env[key];else process.env[key]=value;}});}
 function mockExternal(t,handler){t.mock.method(globalThis,'fetch',(url,options)=>{if(String(url).startsWith(base))return nativeFetch(url,options);return handler(String(url),options);});}
 const response=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});
@@ -34,4 +34,20 @@ test('Google OAuth, dedicated-folder document creation, retry protection, and di
  const saved=await c.post('/api/drive/save',study);assert.equal(saved.status,200);assert.equal((await saved.json()).folderUrl,'https://drive.google.com/drive/folders/folder-1');assert.equal((await c.post('/api/drive/save',study)).status,200);assert.equal(uploadCount,1);assert.equal(folderCount,1);
  assert.equal((await c.post('/api/drive/disconnect',{})).status,200);assert.equal((await (await c.get('/api/status')).json()).driveConnected,false);
  assert.notEqual((await c.post('/api/drive/save',study)).status,200);assert.equal(uploadCount,1);
+});
+
+test('active passage is required and overrides prior conversation context',async t=>{
+ env(t,{ABIDE_OPENAI_KEY:'test-key'});
+ mockExternal(t,(url,options)=>{
+  const sent=JSON.parse(options.body);
+  assert.match(sent.messages[0].content,/Romans 4:5/);
+  assert.match(sent.messages[0].content,/faith is counted for righteousness/);
+  assert.match(sent.messages[0].content,/do not continue discussing those by default/);
+  assert.equal(sent.messages.at(-1).content,'history');
+  return response({choices:[{message:{content:'Romans 4:5 — historical context.'}}]});
+ });
+ const c=await client();
+ for(const passage of [undefined,null,{}, {reference:'Romans 4:5',translation:'KJV',text:''}])assert.equal((await c.post('/api/chat',{...input,passage})).status,400);
+ const r=await c.post('/api/chat',{...input,messages:[{role:'user',content:'Explain John 1:1'},{role:'assistant',content:'John 1:1 concerns the Word.'},{role:'user',content:'history'}]});
+ assert.equal(r.status,200);assert.match((await r.json()).reply,/Romans 4:5/);
 });

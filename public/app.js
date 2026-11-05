@@ -17,7 +17,7 @@ const reader = new BookReader($('bookReader'), selected => {
  $('version').value=selected.translation.toLowerCase();
  $('passageStatus').textContent=`${selected.data.translation_name} · ${selected.data.source||'bible-api.com'}`;
  $('copyright').textContent=selected.data.copyright||'';$('copyright').hidden=!selected.data.copyright;
- persistDraft();
+ syncChatPassage();persistDraft();
 });
 let readerRequest=0;
 async function openReader(){
@@ -35,11 +35,36 @@ const prompts={words:'Explain the key original-language words in this passage.',
 const hints={words:'Explore the meaning behind the words.',history:'Meet the people, places, and customs behind the passage.',manuscripts:'Explore textual witnesses, variants, and what remains uncertain.',connections:'Read this passage alongside the wider story of Scripture.',application:'Connect careful reading with everyday life.',perspectives:'Compare interpretations with curiosity and respect.'};
 $('mode').value='history';
 function hint(){$('topicHint').textContent=hints[$('mode').value];}hint();$('mode').onchange=hint;
-const chips=document.createElement('div');chips.className='chips';for(const [key,label]of [['words','Dictionary'],['manuscripts','Manuscripts'],['connections','Cross-references']]){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{$('mode').value=key;hint();$('prompt').value=`${quote()}\n\n${prompts[key]}`;$('prompt').focus();};chips.append(b);}$('topicHint').after(chips);
-$('insert').onclick=()=>{$('prompt').value=`${quote()}\n\n${prompts[$('mode').value]}`;$('prompt').focus();$('prompt').scrollIntoView({behavior:'smooth',block:'center'});};
+const chips=document.createElement('div');chips.className='chips';for(const [key,label]of [['words','Dictionary'],['manuscripts','Manuscripts'],['connections','Cross-references']]){const b=document.createElement('button');b.textContent=label;b.onclick=()=>{$('mode').value=key;hint();$('prompt').value=prompts[key];$('prompt').focus();};chips.append(b);}$('topicHint').after(chips);
+$('insert').onclick=()=>{syncChatPassage();$('prompt').value=prompts[$('mode').value];$('prompt').focus();$('prompt').scrollIntoView({behavior:'smooth',block:'center'});};
 let history=[];let pending=false;
 function bubble(role,content){$('messages').querySelector('.welcome')?.remove();const div=document.createElement('div');div.className=`message ${role}`;const label=document.createElement('span');label.className='message-label';label.textContent=role==='user'?'YOU':'ABIDE · STUDY COMPANION';div.append(label,messageBody(role,content));$('messages').append(div);$('messages').scrollTop=$('messages').scrollHeight;return div;}
-$('chatForm').onsubmit=async e=>{e.preventDefault();if(pending)return;const content=$('prompt').value.trim();if(!content)return;if(history.length>=28){$('chatStatus').textContent='Clear this conversation to start a new study.';return;}const messages=[...history,{role:'user',content}];const userBubble=bubble('user',content);pending=true;$('send').disabled=true;$('clear').disabled=true;$('chatStatus').textContent='Exploring your question…';$('prompt').value='';try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':connection.csrf||''},body:JSON.stringify({mode:$('mode').value,messages})});const data=await r.json();if(!r.ok)throw Error(data.error||'Unable to send question.');history=[...messages,{role:'assistant',content:data.reply}];persistDraft();bubble('assistant',data.reply);$('chatStatus').textContent='';}catch(error){userBubble.remove();$('prompt').value=content;$('chatStatus').textContent=error.message;}finally{pending=false;$('send').disabled=false;$('clear').disabled=false;}};
+function syncChatPassage(){
+ $('chatPassageReference').textContent=`${passage.reference} (${passage.translation})`;
+ $('chatPassageText').textContent=passage.text;
+ $('prompt').placeholder=`Ask about ${passage.reference}…`;
+}
+const shortcutModes={history:'history','historical context':'history',dictionary:'words','word study':'words',manuscripts:'manuscripts','cross references':'connections',application:'application'};
+$('chatForm').onsubmit=async e=>{
+ e.preventDefault();if(pending)return;
+ const question=$('prompt').value.trim();if(!question)return;
+ if(history.length>=28){$('chatStatus').textContent='Clear this conversation to start a new study.';return;}
+ const selectedPassage={...passage};
+ const keyword=question.toLowerCase().replace(/[?!.,]+$/,'').replace(/-/g,' ');
+ const mode=shortcutModes[keyword]||$('mode').value;
+ $('mode').value=mode;hint();
+ const content=`Study passage: ${selectedPassage.reference} (${selectedPassage.translation})\n${selectedPassage.text}\n\nQuestion: ${question}`;
+ const messages=[...history,{role:'user',content}];
+ const userBubble=bubble('user',content);
+ pending=true;for(const id of ['send','clear','savedStudies','newStudy'])$(id).disabled=true;
+ $('chatStatus').textContent=`Studying ${selectedPassage.reference}…`;$('prompt').value='';
+ try{
+  const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':connection.csrf||''},body:JSON.stringify({mode,passage:selectedPassage,messages})});
+  const data=await r.json();if(!r.ok)throw Error(data.error||'Unable to send question.');
+  history=[...messages,{role:'assistant',content:data.reply}];persistDraft();bubble('assistant',data.reply);$('chatStatus').textContent='';
+ }catch(error){userBubble.remove();if(!$('prompt').value)$('prompt').value=question;$('chatStatus').textContent=error.message;}
+ finally{pending=false;for(const id of ['send','clear','savedStudies','newStudy'])$(id).disabled=false;}
+};
 $('clear').onclick=()=>{history=[];$('messages').replaceChildren();persistDraft();$('chatStatus').textContent='Conversation cleared.';};
 
 let connection={};
@@ -64,13 +89,13 @@ function study(){return {id:activeStudy,title:$('studyTitle').value.trim()||`${p
 function persistDraft(){try{localStorage.setItem('abide-draft',JSON.stringify(study()));}catch{$('saveStatus').textContent='Browser storage is full or unavailable. Keep a copy of your notes.';}}
 function listStudies(){try{return JSON.parse(localStorage.getItem('abide-studies')||'[]');}catch{return [];}}
 function renderStudies(){$('savedStudies').replaceChildren(new Option('Choose a study…',''),...listStudies().map(s=>new Option(s.title,s.id)));}
-function restore(s){$('verse').disabled=false;++chapterRequest;++readerRequest;reader.cancel();activeStudy=s.id||crypto.randomUUID();passage=s.passage;history=s.history||[];$('studyTitle').value=s.title||'';$('notes').value=s.notes||'';$('mode').value=s.mode||'history';hint();$('reference').textContent=passage.reference;$('badge').textContent=passage.translation;const fallback=document.createElement('blockquote');fallback.textContent=passage.text;$('bookReader').replaceChildren(fallback);reader.generation++;reader.previous=null;reader.loading=false;$('passageStatus').textContent='Restored study passage';$('copyright').textContent=passage.copyright||'';$('copyright').hidden=!passage.copyright;$('messages').replaceChildren();history.forEach(m=>bubble(m.role,m.content));const match=passage.reference.match(/^(.+) (\d+):(\d+)$/);if(match&&books.some(b=>b.name===match[1])){$('book').value=match[1];chapters();$('chapter').value=match[2];$('verse').replaceChildren(new Option(match[3],match[3]));$('version').value=passage.translation.toLowerCase();openReader();}}
+function restore(s){$('verse').disabled=false;++chapterRequest;++readerRequest;reader.cancel();activeStudy=s.id||crypto.randomUUID();passage=s.passage;syncChatPassage();history=s.history||[];$('studyTitle').value=s.title||'';$('notes').value=s.notes||'';$('mode').value=s.mode||'history';hint();$('reference').textContent=passage.reference;$('badge').textContent=passage.translation;const fallback=document.createElement('blockquote');fallback.textContent=passage.text;$('bookReader').replaceChildren(fallback);reader.generation++;reader.previous=null;reader.loading=false;$('passageStatus').textContent='Restored study passage';$('copyright').textContent=passage.copyright||'';$('copyright').hidden=!passage.copyright;$('messages').replaceChildren();history.forEach(m=>bubble(m.role,m.content));const match=passage.reference.match(/^(.+) (\d+):(\d+)$/);if(match&&books.some(b=>b.name===match[1])){$('book').value=match[1];chapters();$('chapter').value=match[2];$('verse').replaceChildren(new Option(match[3],match[3]));$('version').value=passage.translation.toLowerCase();openReader();}}
 $('notes').addEventListener('input',persistDraft);$('studyTitle').addEventListener('input',persistDraft);
 $('saveLocal').onclick=()=>{try{const current=study();const items=listStudies().filter(s=>s.id!==current.id);items.unshift(current);localStorage.setItem('abide-studies',JSON.stringify(items));persistDraft();renderStudies();$('saveStatus').textContent='Saved on this device. Browser data clearing will remove local studies.';}catch{$('saveStatus').textContent='Unable to save locally. Browser storage may be full.';}};
-$('savedStudies').onchange=()=>{const s=listStudies().find(s=>s.id===$('savedStudies').value);if(s){restore(s);persistDraft();}};
-$('newStudy').onclick=()=>{if(($('notes').value||history.length)&&!confirm('Start a new study? Save this study first if you want to keep it.'))return;activeStudy=crypto.randomUUID();history=[];$('messages').replaceChildren();$('notes').value='';$('studyTitle').value='';$('prompt').value='';$('saveStatus').textContent='New study started.';persistDraft();};
+$('savedStudies').onchange=()=>{if(pending)return;const s=listStudies().find(s=>s.id===$('savedStudies').value);if(s){restore(s);persistDraft();}};
+$('newStudy').onclick=()=>{if(pending)return;if(($('notes').value||history.length)&&!confirm('Start a new study? Save this study first if you want to keep it.'))return;activeStudy=crypto.randomUUID();history=[];$('messages').replaceChildren();$('notes').value='';$('studyTitle').value='';$('prompt').value='';$('saveStatus').textContent='New study started.';persistDraft();};
 $('saveDrive').onclick=async()=>{const s=study();const text=[`${s.passage.reference} (${s.passage.translation})`,s.passage.text,s.passage.copyright||'',`Study lens: ${$('mode').selectedOptions[0].textContent}`,...s.history.map(m=>`${m.role==='user'?'Question':'AI study response'}:\n${m.content}`),`Personal notes:\n${s.notes}`,'Saved from Abide Bible Study','AI-generated explanations should be checked against reliable sources.'].join('\n\n');$('saveDrive').disabled=true;$('saveStatus').textContent='Saving to Google Drive…';try{const r=await fetch('/api/drive/save',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':connection.csrf},body:JSON.stringify({title:s.title,text})});const data=await r.json();if(!r.ok)throw Error(data.error||'Could not save study.');$('saveStatus').replaceChildren(document.createTextNode('Saved. '));const a=document.createElement('a');a.textContent='Open Google Doc ↗';a.href=data.url;a.target='_blank';a.rel='noopener';$('saveStatus').append(a);$('driveFolder').href=data.folderUrl;$('driveFolder').hidden=false;}catch(e){$('saveStatus').textContent=e.message;}finally{$('saveDrive').disabled=!connection.driveConnected;}};
 try{const draft=JSON.parse(localStorage.getItem('abide-draft')||'null');if(draft?.passage&&Array.isArray(draft.history))restore(draft);}catch{}
-renderStudies();refreshConnection();
+renderStudies();refreshConnection();syncChatPassage();
 
 if(!readerRequest)openReader();

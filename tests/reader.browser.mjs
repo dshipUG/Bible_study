@@ -25,7 +25,7 @@ try {
  assert.ok(await page.locator('#bookReader').evaluate(el=>el.scrollTop>300));
  await page.locator('.reader-verse[data-chapter="5"][data-verse="7"]').click();
  assert.equal(await page.locator('#reference').textContent(),'Proverbs 5:7');
- await page.click('#insert');assert.match(await page.locator('#prompt').inputValue(),/Proverbs 5:7/);
+ await page.click('#insert');assert.match(await page.locator('#chatPassageReference').textContent(),/Proverbs 5:7/);assert.ok(await page.locator('#prompt').inputValue());
  await page.locator('#bookReader').evaluate(el=>el.scrollTop=el.scrollHeight);
  await page.waitForFunction(()=>document.querySelector('[data-direction=next]').textContent.includes('retry'));
  await page.locator('[data-direction=next]').click();await page.waitForSelector('.reader-verse[data-chapter="6"]');
