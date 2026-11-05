@@ -2,9 +2,10 @@
 
 A mobile-first Bible study app with the selected dark navy, charcoal, cream, and gold palette. Includes 66 books, chapter and verse selection, KJV/WEB/BBE translations, verse copy/insert, and topic-guided AI conversation.
 
-Requires Node.js 24+. No package installation is required.
+Requires Node.js 24+. Run `npm ci` to install the locked dependencies.
 
 ```sh
+npm ci
 npm start
 ```
 

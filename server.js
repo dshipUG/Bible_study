@@ -51,7 +51,11 @@ export const server = http.createServer(async(req,res)=>{
    const result=await response.json();return json(res,200,{reply:result.choices?.[0]?.message?.content||'No response was returned. Please try again.'});
   }
   if(req.method!=='GET')return json(res,405,{error:'Method not allowed.'});
-  const files={'/':'index.html','/app.js':'app.js','/reader.js':'reader.js','/style.css':'style.css'};
+  if(url.pathname==='/vendor/markdown-it.js'){
+   res.writeHead(200,{'Content-Type':'text/javascript'});
+   res.end(await readFile(new URL('./node_modules/markdown-it/dist/markdown-it.min.js',import.meta.url)));return;
+  }
+  const files={'/':'index.html','/app.js':'app.js','/format.js':'format.js','/reader.js':'reader.js','/style.css':'style.css'};
   if(!files[url.pathname])return json(res,404,{error:'Not found'});
   res.writeHead(200,{'Content-Type':url.pathname.endsWith('.js')?'text/javascript':url.pathname.endsWith('.css')?'text/css':'text/html','X-Content-Type-Options':'nosniff'});
   res.end(await readFile(new URL(`./public/${files[url.pathname]}`,import.meta.url)));

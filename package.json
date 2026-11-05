@@ -10,5 +10,8 @@
   },
   "engines": {
     "node": ">=24"
+  },
+  "dependencies": {
+    "markdown-it": "14.3.3"
   }
 }

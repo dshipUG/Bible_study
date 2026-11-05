@@ -2,10 +2,11 @@
 
 ## Local development
 
-Use Node.js 24 or later. There are no third-party runtime packages to install.
+Use Node.js 24 or later. Install the locked dependencies with `npm ci`.
 
 ```sh
 cd /workspace/Bible_study
+npm ci
 npm start
 ```
 
