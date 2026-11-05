@@ -52,13 +52,15 @@ export const server = http.createServer(async(req,res)=>{
   }
   if(req.method!=='GET')return json(res,405,{error:'Method not allowed.'});
   if(url.pathname==='/vendor/markdown-it.js'){
+   const asset=await readFile(new URL('./node_modules/markdown-it/dist/markdown-it.min.js',import.meta.url));
    res.writeHead(200,{'Content-Type':'text/javascript'});
-   res.end(await readFile(new URL('./node_modules/markdown-it/dist/markdown-it.min.js',import.meta.url)));return;
+   res.end(asset);return;
   }
   const files={'/':'index.html','/app.js':'app.js','/format.js':'format.js','/reader.js':'reader.js','/style.css':'style.css'};
   if(!files[url.pathname])return json(res,404,{error:'Not found'});
+  const asset=await readFile(new URL(`./public/${files[url.pathname]}`,import.meta.url));
   res.writeHead(200,{'Content-Type':url.pathname.endsWith('.js')?'text/javascript':url.pathname.endsWith('.css')?'text/css':'text/html','X-Content-Type-Options':'nosniff'});
-  res.end(await readFile(new URL(`./public/${files[url.pathname]}`,import.meta.url)));
+  res.end(asset);
  }catch(e){json(res,e.status||(e instanceof SyntaxError?400:500),{error:e.name==='TimeoutError'?'The request timed out. Please try again.':'The request could not be completed. Please try again.'});}
 });
 if(process.argv[1]===fileURLToPath(import.meta.url))server.listen(process.env.PORT||3000,'0.0.0.0',()=>console.log('Bible study running on port '+(process.env.PORT||3000)));
