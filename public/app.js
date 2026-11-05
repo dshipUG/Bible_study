@@ -1,3 +1,4 @@
+import {BookReader, getChapter} from './reader.js';
 const $=id=>document.getElementById(id);
 const books='Genesis:50|Exodus:40|Leviticus:27|Numbers:36|Deuteronomy:34|Joshua:24|Judges:21|Ruth:4|1 Samuel:31|2 Samuel:24|1 Kings:22|2 Kings:25|1 Chronicles:29|2 Chronicles:36|Ezra:10|Nehemiah:13|Esther:10|Job:42|Psalms:150|Proverbs:31|Ecclesiastes:12|Song of Solomon:8|Isaiah:66|Jeremiah:52|Lamentations:5|Ezekiel:48|Daniel:12|Hosea:14|Joel:3|Amos:9|Obadiah:1|Jonah:4|Micah:7|Nahum:3|Habakkuk:3|Zephaniah:3|Haggai:2|Zechariah:14|Malachi:4|Matthew:28|Mark:16|Luke:24|John:21|Acts:28|Romans:16|1 Corinthians:16|2 Corinthians:13|Galatians:6|Ephesians:6|Philippians:4|Colossians:4|1 Thessalonians:5|2 Thessalonians:3|1 Timothy:6|2 Timothy:4|Titus:3|Philemon:1|Hebrews:13|James:5|1 Peter:5|2 Peter:3|1 John:5|2 John:1|3 John:1|Jude:1|Revelation:22'.split('|').map(b=>{const [name,chapters]=b.split(':');return {name,chapters:+chapters}});
 books.forEach(b=>$('book').add(new Option(b.name,b.name)));
@@ -6,12 +7,26 @@ function chapters(){const count=books.find(b=>b.name===$('book').value).chapters
 chapters();$('book').addEventListener('change',()=>{chapters();loadChapter();});$('chapter').addEventListener('change',loadChapter);
 let passage={reference:'John 1:1',translation:'KJV',text:'In the beginning was the Word, and the Word was with God, and the Word was God.'};
 $('version').value='kjv';$('badge').textContent='KJV';$('passageStatus').textContent='Starter passage · King James Version';
-$('load').onclick=async()=>{
- const verse=+$('verse').value;if(!Number.isInteger(verse)||verse<1||verse>176){$('passageStatus').textContent='Choose a verse number between 1 and 176.';return;}
- $('load').disabled=true;$('passageStatus').textContent='Loading passage…';
- try{const ref=`${$('book').value} ${$('chapter').value}:${verse}`;const r=await fetch(`/api/passage?reference=${encodeURIComponent(ref)}&translation=${$('version').value}`,{signal:AbortSignal.timeout(15000)});const data=await r.json();if(!r.ok||!data.text)throw Error('Passage unavailable. Check the verse number and your connection.');passage={reference:data.reference,translation:$('version').value.toUpperCase(),text:data.text.trim()};$('reference').textContent=passage.reference;$('badge').textContent=passage.translation;$('verseText').textContent=passage.text;$('passageStatus').textContent=`${data.translation_name} · bible-api.com`;
- }catch(e){$('passageStatus').textContent='Could not load that passage. Check the verse number and your connection. The previous passage is still shown.';}finally{$('load').disabled=false;}
-};
+const reader = new BookReader($('bookReader'), selected => {
+ chapterRequest++;$('verse').disabled=false;$('load').disabled=false;
+ passage={reference:selected.reference,translation:selected.translation,text:selected.text};
+ $('reference').textContent=passage.reference;$('badge').textContent=passage.translation;
+ $('book').value=selected.book;chapters();$('chapter').value=selected.chapter;
+ $('verse').replaceChildren(...selected.data.verses.map(v=>new Option(v.verse,v.verse)));$('verse').value=selected.verse;
+ $('version').value=selected.translation.toLowerCase();
+ $('passageStatus').textContent=`${selected.data.translation_name} · bible-api.com`;
+ persistDraft();
+});
+let readerRequest=0;
+async function openReader(){
+ const request=++readerRequest;++chapterRequest;
+ const book=$('book').value, chapter=+$('chapter').value, verse=+$('verse').value, translation=$('version').value;
+ $('load').disabled=true;$('passageStatus').textContent='Opening chapter…';
+ try{await reader.open(book,chapter,verse,translation,books.find(b=>b.name===book).chapters);}
+ catch{if(request===readerRequest)$('passageStatus').textContent='Could not open this passage. The previous text is still shown. Tap Read passage to retry.';}
+ finally{if(request===readerRequest)$('load').disabled=false;}
+}
+$('load').onclick=openReader;
 const quote=()=>`${passage.reference} (${passage.translation})\n“${passage.text}”`;
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(quote());$('passageStatus').textContent='Verse copied.';}catch{$('passageStatus').textContent='Clipboard unavailable. Use “Study this verse” to add it to your question.';}};
 const prompts={words:'Explain the key original-language words in this passage.',history:'Explain the historical and cultural context of this passage.',manuscripts:'What ancient manuscript evidence and significant textual variants relate to this passage?',connections:'Which other passages help explain this verse?',application:'How might I apply this passage? Include reflection questions.',perspectives:'How do different interpretive traditions understand this passage?'};
@@ -28,9 +43,10 @@ $('clear').onclick=()=>{history=[];$('messages').replaceChildren();persistDraft(
 let connection={};
 let chapterRequest=0;
 async function loadChapter(){
- const request=++chapterRequest;const ref=`${$('book').value} ${$('chapter').value}`;
+ reader.cancel();++readerRequest;
+ const request=++chapterRequest;const book=$('book').value, chapter=+$('chapter').value, translation=$('version').value;
  $('verse').disabled=true;$('load').disabled=true;$('passageStatus').textContent='Loading chapter…';
- try{const r=await fetch(`/api/passage?reference=${encodeURIComponent(ref)}&translation=${$('version').value}`,{signal:AbortSignal.timeout(20000)});const data=await r.json();if(!r.ok||!data.verses?.length)throw Error();if(request!==chapterRequest)return;
+ try{const data=await getChapter(book,chapter,translation);if(request!==chapterRequest)return;
  $('verse').replaceChildren(...data.verses.map(v=>new Option(v.verse,v.verse)));$('passageStatus').textContent='Choose a verse, then tap Read passage.';
  }catch{if(request!==chapterRequest)return;$('verse').replaceChildren(...Array.from({length:176},(_,i)=>new Option(i+1,i+1)));$('passageStatus').textContent='Chapter list unavailable. Choose a verse number; Read passage will check it.';
  }finally{if(request===chapterRequest){$('verse').disabled=false;$('load').disabled=false;}}
@@ -46,7 +62,7 @@ function study(){return {id:activeStudy,title:$('studyTitle').value.trim()||`${p
 function persistDraft(){try{localStorage.setItem('abide-draft',JSON.stringify(study()));}catch{$('saveStatus').textContent='Browser storage is full or unavailable. Keep a copy of your notes.';}}
 function listStudies(){try{return JSON.parse(localStorage.getItem('abide-studies')||'[]');}catch{return [];}}
 function renderStudies(){$('savedStudies').replaceChildren(new Option('Choose a study…',''),...listStudies().map(s=>new Option(s.title,s.id)));}
-function restore(s){activeStudy=s.id||crypto.randomUUID();passage=s.passage;history=s.history||[];$('studyTitle').value=s.title||'';$('notes').value=s.notes||'';$('mode').value=s.mode||'history';hint();$('reference').textContent=passage.reference;$('badge').textContent=passage.translation;$('verseText').textContent=passage.text;$('passageStatus').textContent='Restored study passage';$('messages').replaceChildren();history.forEach(m=>bubble(m.role,m.content));}
+function restore(s){$('verse').disabled=false;++chapterRequest;++readerRequest;reader.cancel();activeStudy=s.id||crypto.randomUUID();passage=s.passage;history=s.history||[];$('studyTitle').value=s.title||'';$('notes').value=s.notes||'';$('mode').value=s.mode||'history';hint();$('reference').textContent=passage.reference;$('badge').textContent=passage.translation;const fallback=document.createElement('blockquote');fallback.textContent=passage.text;$('bookReader').replaceChildren(fallback);reader.generation++;reader.previous=null;reader.loading=false;$('passageStatus').textContent='Restored study passage';$('messages').replaceChildren();history.forEach(m=>bubble(m.role,m.content));const match=passage.reference.match(/^(.+) (\d+):(\d+)$/);if(match&&books.some(b=>b.name===match[1])){$('book').value=match[1];chapters();$('chapter').value=match[2];$('verse').replaceChildren(new Option(match[3],match[3]));$('version').value=passage.translation.toLowerCase();openReader();}}
 $('notes').addEventListener('input',persistDraft);$('studyTitle').addEventListener('input',persistDraft);
 $('saveLocal').onclick=()=>{try{const current=study();const items=listStudies().filter(s=>s.id!==current.id);items.unshift(current);localStorage.setItem('abide-studies',JSON.stringify(items));persistDraft();renderStudies();$('saveStatus').textContent='Saved on this device. Browser data clearing will remove local studies.';}catch{$('saveStatus').textContent='Unable to save locally. Browser storage may be full.';}};
 $('savedStudies').onchange=()=>{const s=listStudies().find(s=>s.id===$('savedStudies').value);if(s){restore(s);persistDraft();}};
@@ -54,3 +70,5 @@ $('newStudy').onclick=()=>{if(($('notes').value||history.length)&&!confirm('Star
 $('saveDrive').onclick=async()=>{const s=study();const text=[`${s.passage.reference} (${s.passage.translation})`,s.passage.text,`Study lens: ${$('mode').selectedOptions[0].textContent}`,...s.history.map(m=>`${m.role==='user'?'Question':'AI study response'}:\n${m.content}`),`Personal notes:\n${s.notes}`,'Saved from Abide Bible Study','AI-generated explanations should be checked against reliable sources.'].join('\n\n');$('saveDrive').disabled=true;$('saveStatus').textContent='Saving to Google Drive…';try{const r=await fetch('/api/drive/save',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':connection.csrf},body:JSON.stringify({title:s.title,text})});const data=await r.json();if(!r.ok)throw Error(data.error||'Could not save study.');$('saveStatus').replaceChildren(document.createTextNode('Saved. '));const a=document.createElement('a');a.textContent='Open Google Doc ↗';a.href=data.url;a.target='_blank';a.rel='noopener';$('saveStatus').append(a);$('driveFolder').href=data.folderUrl;$('driveFolder').hidden=false;}catch(e){$('saveStatus').textContent=e.message;}finally{$('saveDrive').disabled=!connection.driveConnected;}};
 try{const draft=JSON.parse(localStorage.getItem('abide-draft')||'null');if(draft?.passage&&Array.isArray(draft.history))restore(draft);}catch{}
 renderStudies();refreshConnection();
+
+if(!readerRequest)openReader();
