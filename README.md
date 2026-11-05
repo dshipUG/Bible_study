@@ -19,3 +19,9 @@ This is a local development prototype. The hosted private pilot requires APP_ACC
 Run `npm test` for server checks.
 
 See [SETUP.md](SETUP.md) for Google connection, hosting, and live verification instructions.
+
+## NLT connection
+
+Set `NLT_API_KEY` in the Render service's Environment settings, then redeploy. The server calls Tyndale's official https://api.nlt.to/api/passages endpoint and converts its HTML into plain verse data for the existing reader. The key stays on the server. NLT is available in the translation selector; it returns a setup message if no key is configured. Existing translations continue to use bible-api.com.
+
+Tyndale's standard key-based terms list 500 verses per request and 5,000 requests per day for noncommercial use. Commercial use needs a suitable license from Tyndale. See https://api.nlt.to/ and your account's license terms. This integration requests one chapter or verse at a time. It does not download a Bible database or include study notes. The NLT credit is displayed alongside the reader and included when copying a verse or exporting it to Drive.

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {nltPassage} from './nlt.js';
 import {canAccess} from './access.js';
 import {session, integrations} from './integrations.js';
 import {readFile} from 'node:fs/promises';
@@ -29,7 +30,11 @@ export const server = http.createServer(async(req,res)=>{
   if(await integrations(req,res,url,s,json,body))return;
   if(url.pathname==='/api/passage'){
    const ref=url.searchParams.get('reference')||'';const translation=url.searchParams.get('translation');
-   if(!/^[1-3]? ?[A-Za-z ]+ [1-9][0-9]{0,2}(?::[1-9][0-9]{0,2})?$/.test(ref)||!['kjv','web','bbe'].includes(translation))return json(res,400,{error:'Invalid passage.'});
+   if(!/^[1-3]? ?[A-Za-z ]+ [1-9][0-9]{0,2}(?::[1-9][0-9]{0,2})?$/.test(ref)||!['kjv','web','bbe','nlt'].includes(translation))return json(res,400,{error:'Invalid passage.'});
+   if(translation==='nlt'){
+    try{return json(res,200,await nltPassage(ref));}
+    catch(error){return json(res,error.status||502,{error:error.status===503?'NLT is not connected yet. Add NLT_API_KEY in Render.':'NLT could not load. Try again or choose another translation.'});}
+   }
    const r=await fetch('https://bible-api.com/'+encodeURIComponent(ref)+'?translation='+translation,{signal:AbortSignal.timeout(15000)});
    if(!r.ok)return json(res,r.status===404?404:502,{error:'Passage unavailable. Check the reference and try again.'});
    return json(res,200,await r.json());
